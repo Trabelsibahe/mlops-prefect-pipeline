@@ -16,6 +16,7 @@ Interactive docs:
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 import os
+from fastapi.middleware.cors import CORSMiddleware
 
 from model_pipeline import load_model, predict
 
@@ -36,6 +37,14 @@ app = FastAPI(
     title="Customer Churn Prediction API",
     description="REST API exposing the predict() function of the Churn ML model.",
     version="1.0.0",
+)
+
+# Allow requests from the HTML UI
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
