@@ -29,6 +29,12 @@ TARGET_FILES = ["model_pipeline.py", "main.py", "pipeline_prefect.py"]
 # Sample customer for prediction demo
 SAMPLE_CUSTOMER = [850, 0, 43, 2, 125510.82, 1, 1, 1, 79084.10]
 
+# ── Git repo ───────────────────────────────────────────────
+# Replace with your actual GitHub repo URL
+REPO_URL    = "https://github.com/Trabelsibahe/mlops-prefect-pipeline.git"
+PROJECT_DIR = os.path.abspath(".")   # current working directory
+
+
 # ══════════════════════════════════════════════════════════
 # ░░  TASKS — GIT
 # ══════════════════════════════════════════════════════════
