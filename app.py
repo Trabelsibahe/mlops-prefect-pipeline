@@ -14,6 +14,7 @@ Interactive docs:
 """
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 import os
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,8 @@ from model_pipeline import load_model, predict
 
 # ── Config ─────────────────────────────────────────────────
 MODEL_PATH = "classifier.joblib"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+INDEX_HTML_PATH = os.path.join(BASE_DIR, "index.html")
 
 # ── Load model at startup ──────────────────────────────────
 if not os.path.exists(MODEL_PATH):
@@ -74,8 +77,14 @@ class PredictionResponse(BaseModel):
 
 
 # ── Routes ─────────────────────────────────────────────────
-@app.get("/", tags=["Health"])
+@app.get("/", include_in_schema=False)
 def root():
+    """Serve the frontend dashboard."""
+    return FileResponse(INDEX_HTML_PATH, media_type="text/html")
+
+
+@app.get("/health", tags=["Health"])
+def health():
     """Health check — confirms the API is running."""
     return {"status": "ok", "message": "Churn Prediction API is running."}
 
