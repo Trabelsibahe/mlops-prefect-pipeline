@@ -345,14 +345,9 @@ FLOWS = {
     "all": flow_all,
     "train": flow_train,
     "evaluate": flow_evaluate,
-<<<<<<< Updated upstream
     "code":     flow_code,
     "install":  flow_install,
     "api":      flow_api,
-=======
-    "code": flow_code,
-    "install": flow_install,
->>>>>>> Stashed changes
 }
 
 #   ARGUMENTS
@@ -363,11 +358,7 @@ if __name__ == "__main__":
         "--flow",
         choices=list(FLOWS.keys()),
         required=True,
-<<<<<<< Updated upstream
         help="Which flow to run: all | train | evaluate | code | install | api"
-=======
-        help="Which flow to run: all | train | evaluate | code | install",
->>>>>>> Stashed changes
     )
     args = parser.parse_args()
     FLOWS[args.flow]()
