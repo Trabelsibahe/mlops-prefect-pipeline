@@ -135,6 +135,17 @@ def task_predict(model):
     result = predict(model, SAMPLE_CUSTOMER)
     return result
 
+@task(name="start_api", log_prints=True)
+def task_start_api():
+    """Launch the FastAPI server with Uvicorn."""
+    print("[api] Starting FastAPI server on http://0.0.0.0:8000 …")
+    print("[api] Interactive docs will be available at http://127.0.0.1:8000/docs")
+    import subprocess
+    result = subprocess.run(
+        ["uvicorn", "app:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
+    )
+    if result.returncode not in (0, 130):  # 130 = Ctrl+C (normal exit)
+        raise RuntimeError("[api] Uvicorn exited with an error.")
 
 # ══════════════════════════════════════════════════════════
 # ░░  TASKS — CODE QUALITY
@@ -317,6 +328,10 @@ def flow_all():
     task_evaluate_model(model, x_test, y_test)
     task_predict(model)
 
+@flow(name="api", log_prints=True)
+def flow_api():
+    """Flow: start the FastAPI prediction service."""
+    task_start_api()
 
 # ══════════════════════════════════════════════════════════
 # ░░  CLI ENTRY POINT
@@ -328,6 +343,7 @@ FLOWS = {
     "evaluate": flow_evaluate,
     "code":     flow_code,
     "install":  flow_install,
+    "api":      flow_api,
 }
 
 #   ARGUMENTS
@@ -338,7 +354,7 @@ if __name__ == "__main__":
         "--flow",
         choices=list(FLOWS.keys()),
         required=True,
-        help="Which flow to run: all | train | evaluate | code | install"
+        help="Which flow to run: all | train | evaluate | code | install | api"
     )
     args = parser.parse_args()
     FLOWS[args.flow]()
