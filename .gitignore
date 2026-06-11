@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+*.joblib
+.prefect/
+*.egg-info/
+.env

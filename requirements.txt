@@ -1,0 +1,16 @@
+numpy
+pandas
+scikit-learn
+matplotlib
+jupyter
+mlflow
+fastapi
+uvicorn
+joblib
+prefect
+
+# Code quality (needed for pipeline_prefect.py tasks)
+black
+flake8
+bandit
+pytest
