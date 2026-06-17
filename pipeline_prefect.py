@@ -2,6 +2,8 @@
 pipeline_prefect.py
 -------------------
 Prefect pipeline for the Customer Churn ML project.
+MLflow tracking is integrated: each flow opens a parent run and
+delegates child (nested) runs to model_pipeline.py functions.
 
 Usage:
   python pipeline_prefect.py --flow all
@@ -9,6 +11,7 @@ Usage:
   python pipeline_prefect.py --flow evaluate
   python pipeline_prefect.py --flow code
   python pipeline_prefect.py --flow install
+  python pipeline_prefect.py --flow api
 """
 
 import argparse
@@ -16,12 +19,13 @@ import subprocess
 import sys
 import os
 
+import mlflow
 from prefect import task, flow
 
 # ── Paths ──────────────────────────────────────────────────
-DATA_PATH = "Churn_Modelling.csv"
+DATA_PATH  = "Churn_Modelling.csv"
 MODEL_PATH = "classifier.joblib"
-TEST_PATH = "tests/"
+TEST_PATH  = "tests/"
 
 # Target files for code quality / security checks
 TARGET_FILES = ["model_pipeline.py", "main.py", "pipeline_prefect.py"]
@@ -30,9 +34,15 @@ TARGET_FILES = ["model_pipeline.py", "main.py", "pipeline_prefect.py"]
 SAMPLE_CUSTOMER = [850, 0, 43, 2, 125510.82, 1, 1, 1, 79084.10]
 
 # ── Git repo ───────────────────────────────────────────────
-# Replace with your actual GitHub repo URL
-REPO_URL = "https://github.com/Trabelsibahe/mlops-prefect-pipeline.git"
-PROJECT_DIR = os.path.abspath(".")  # current working directory
+REPO_URL    = "https://github.com/Trabelsibahe/mlops-prefect-pipeline.git"
+PROJECT_DIR = os.path.abspath(".")
+
+# ── MLflow ────────────────────────────────────────────────
+MLFLOW_TRACKING_URI    = os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
+MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "Customer-Churn")
+
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
 
 
 # ══════════════════════════════════════════════════════════
@@ -45,12 +55,11 @@ def task_git_clone_or_pull():
     """
     First step of the pipeline:
     - If the project folder already exists → git pull (get latest code)
-    - If it doesn't exist yet          → git clone (fresh download)
+    - If it doesn't exist yet              → git clone (fresh download)
     """
     git_dir = os.path.join(PROJECT_DIR, ".git")
 
     if os.path.exists(git_dir):
-        # Repo already cloned — just pull latest changes
         print(f"[git] Repo found at '{PROJECT_DIR}' — pulling latest changes …")
         result = subprocess.run(
             ["git", "-C", PROJECT_DIR, "pull"], capture_output=True, text=True
@@ -60,7 +69,6 @@ def task_git_clone_or_pull():
             raise RuntimeError(f"git pull failed:\n{result.stderr}")
         print("[git] Pull complete.")
     else:
-        # Fresh machine — clone the repo
         print(f"[git] Cloning repo from {REPO_URL} …")
         result = subprocess.run(
             ["git", "clone", REPO_URL, PROJECT_DIR], capture_output=True, text=True
@@ -102,7 +110,7 @@ def task_prepare_data():
 
 @task(name="Entrainement du modèle", log_prints=True)
 def task_train_model(x_train, y_train):
-    """Train the Random Forest classifier."""
+    """Train the Random Forest classifier (logs params + model to MLflow)."""
     from model_pipeline import train_model
 
     model = train_model(x_train, y_train)
@@ -111,7 +119,7 @@ def task_train_model(x_train, y_train):
 
 @task(name="Sauvegarder le modèle", log_prints=True)
 def task_save_model(model):
-    """Persist the trained model to disk."""
+    """Persist the trained model to disk and log artefact to MLflow."""
     from model_pipeline import save_model
 
     save_model(model, MODEL_PATH)
@@ -126,9 +134,9 @@ def task_load_model():
     return model
 
 
-@task(name=" Evaluer le modèle", log_prints=True)
+@task(name="Evaluer le modèle", log_prints=True)
 def task_evaluate_model(model, x_test, y_test):
-    """Evaluate the model and print metrics."""
+    """Evaluate the model and log metrics to MLflow."""
     from model_pipeline import evaluate_model
 
     metrics = evaluate_model(model, x_test, y_test)
@@ -143,17 +151,39 @@ def task_predict(model):
     result = predict(model, SAMPLE_CUSTOMER)
     return result
 
+
 @task(name="start_api", log_prints=True)
 def task_start_api():
     """Launch the FastAPI server with Uvicorn."""
     print("[api] Starting FastAPI server on http://0.0.0.0:8000 …")
     print("[api] Interactive docs will be available at http://127.0.0.1:8000/docs")
-    import subprocess
     result = subprocess.run(
         ["uvicorn", "app:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
     )
     if result.returncode not in (0, 130):  # 130 = Ctrl+C (normal exit)
         raise RuntimeError("[api] Uvicorn exited with an error.")
+
+
+# ── MLflow UI helper ───────────────────────────────────────
+
+
+@task(name="start_mlflow_ui", log_prints=True)
+def task_start_mlflow_ui():
+    """
+    Start the MLflow UI in the background (non-blocking).
+    Access it at http://127.0.0.1:5000
+    """
+    print("[mlflow] Starting MLflow UI on http://127.0.0.1:5000 …")
+    subprocess.Popen(
+        [
+            sys.executable, "-m", "mlflow", "ui",
+            "--backend-store-uri", MLFLOW_TRACKING_URI,
+            "--host", "0.0.0.0",
+            "--port", "5000",
+        ]
+    )
+    print("[mlflow] UI started in background.")
+
 
 # ══════════════════════════════════════════════════════════
 # ░░  TASKS — CODE QUALITY
@@ -205,7 +235,6 @@ def task_run_unit_tests():
     os.makedirs(TEST_PATH, exist_ok=True)
     test_file = os.path.join(TEST_PATH, "test_model_pipeline.py")
 
-    # Create a sample test file if it does not exist yet
     if not os.path.exists(test_file):
         print(f"[tests] Creating sample test file at {test_file} …")
         with open(test_file, "w") as f:
@@ -262,7 +291,7 @@ def test_predict_output(dummy_data):
     result = predict(model, sample)
     assert result in (0, 1), "Prediction must be 0 or 1"
 ''')
-        print(f"[tests] Test file created.")
+        print("[tests] Test file created.")
 
     print("[tests] Running pytest …")
     result = subprocess.run(["pytest", TEST_PATH, "-v"], capture_output=True, text=True)
@@ -294,63 +323,77 @@ def flow_code():
 
 @flow(name="train", log_prints=True)
 def flow_train():
-    """Flow: prepare data + train model."""
-    x_train, x_test, y_train, y_test = task_prepare_data()
-    task_train_model(x_train, y_train)
+    """Flow: prepare data + train model (tracked in MLflow)."""
+    with mlflow.start_run(run_name="flow_train"):
+        mlflow.set_tag("prefect_flow", "train")
+        x_train, x_test, y_train, y_test = task_prepare_data()
+        task_train_model(x_train, y_train)
 
 
 @flow(name="evaluate", log_prints=True)
 def flow_evaluate():
-    """Flow: load saved model + evaluate."""
-    model = task_load_model()
-    x_train, x_test, y_train, y_test = task_prepare_data()
-    task_evaluate_model(model, x_test, y_test)
+    """Flow: load saved model + evaluate (tracked in MLflow)."""
+    with mlflow.start_run(run_name="flow_evaluate"):
+        mlflow.set_tag("prefect_flow", "evaluate")
+        model = task_load_model()
+        x_train, x_test, y_train, y_test = task_prepare_data()
+        task_evaluate_model(model, x_test, y_test)
 
 
 @flow(name="all", log_prints=True)
 def flow_all():
     """
-    Full pipeline:
-      git pull -> install -> code quality -> prepare -> train -> save -> evaluate -> predict
+    Full pipeline (tracked end-to-end in MLflow):
+      git pull → install → code quality → prepare → train → save → evaluate → predict
     """
-    # 0. Fetch latest code from remote Git repo
-    task_git_clone_or_pull()
+    with mlflow.start_run(run_name="flow_all"):
+        mlflow.set_tag("prefect_flow", "all")
 
-    # 1. Dependencies
-    install_dependencies()
+        # 0. Fetch latest code
+        task_git_clone_or_pull()
 
-    # 2. Code quality checks
-    task_format_code()
-    task_lint_code()
-    task_security_check()
-    task_run_unit_tests()
+        # 1. Dependencies
+        install_dependencies()
 
-    # 3. Data / model
-    x_train, x_test, y_train, y_test = task_prepare_data()
-    model = task_train_model(x_train, y_train)
-    task_save_model(model)
-    task_evaluate_model(model, x_test, y_test)
-    task_predict(model)
+        # 2. Code quality checks
+        task_format_code()
+        task_lint_code()
+        task_security_check()
+        task_run_unit_tests()
+
+        # 3. Data / model
+        x_train, x_test, y_train, y_test = task_prepare_data()
+        model = task_train_model(x_train, y_train)
+        task_save_model(model)
+        task_evaluate_model(model, x_test, y_test)
+        task_predict(model)
+
 
 @flow(name="api", log_prints=True)
 def flow_api():
     """Flow: start the FastAPI prediction service."""
     task_start_api()
 
+
+@flow(name="mlflow_ui", log_prints=True)
+def flow_mlflow_ui():
+    """Flow: start the MLflow tracking UI (background process)."""
+    task_start_mlflow_ui()
+
+
 # ══════════════════════════════════════════════════════════
 # ░░  CLI ENTRY POINT
 # ══════════════════════════════════════════════════════════
 
 FLOWS = {
-    "all": flow_all,
-    "train": flow_train,
-    "evaluate": flow_evaluate,
-    "code":     flow_code,
-    "install":  flow_install,
-    "api":      flow_api,
+    "all":       flow_all,
+    "train":     flow_train,
+    "evaluate":  flow_evaluate,
+    "code":      flow_code,
+    "install":   flow_install,
+    "api":       flow_api,
+    "mlflow_ui": flow_mlflow_ui,
 }
-
-#   ARGUMENTS
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Prefect ML Pipeline")
@@ -358,7 +401,7 @@ if __name__ == "__main__":
         "--flow",
         choices=list(FLOWS.keys()),
         required=True,
-        help="Which flow to run: all | train | evaluate | code | install | api"
+        help="Which flow to run: all | train | evaluate | code | install | api | mlflow_ui",
     )
     args = parser.parse_args()
     FLOWS[args.flow]()
