@@ -31,13 +31,24 @@ from model_pipeline import (
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
 
+<<<<<<< Updated upstream
 DEFAULT_DATA    = "Churn_Modelling.csv"
 DEFAULT_MODEL   = "classifier.joblib"
+=======
+# ── Default paths ──────────────────────────────────────────
+DEFAULT_DATA = "Churn_Modelling.csv"
+DEFAULT_MODEL = "classifier.joblib"
+
+# ── Sample customer for inference demo ─────────────────────
+# [CreditScore, Gender(0=Female/1=Male), Age, Tenure, Balance,
+#  NumOfProducts, HasCrCard, IsActiveMember, EstimatedSalary]
+>>>>>>> Stashed changes
 SAMPLE_CUSTOMER = [850, 0, 43, 2, 125510.82, 1, 1, 1, 79084.10]
 
 
 def main():
     parser = argparse.ArgumentParser(description="Customer Churn ML Pipeline")
+<<<<<<< Updated upstream
     parser.add_argument("--data",         default=DEFAULT_DATA,  help="Path to CSV data file")
     parser.add_argument("--model",        default=DEFAULT_MODEL, help="Path to save/load model")
     parser.add_argument("--all",          action="store_true", help="Run the full pipeline")
@@ -46,6 +57,22 @@ def main():
     parser.add_argument("--evaluate",     action="store_true", help="Prepare + train + evaluate")
     parser.add_argument("--save",         action="store_true", help="Prepare + train + save")
     parser.add_argument("--load-predict", action="store_true", help="Load saved model + predict sample")
+=======
+    parser.add_argument("--data", default=DEFAULT_DATA, help="Path to CSV data file")
+    parser.add_argument(
+        "--model", default=DEFAULT_MODEL, help="Path to save/load model"
+    )
+    parser.add_argument("--all", action="store_true", help="Run the full pipeline")
+    parser.add_argument("--prepare", action="store_true", help="Prepare data only")
+    parser.add_argument("--train", action="store_true", help="Prepare + train")
+    parser.add_argument(
+        "--evaluate", action="store_true", help="Prepare + train + evaluate"
+    )
+    parser.add_argument("--save", action="store_true", help="Prepare + train + save")
+    parser.add_argument(
+        "--load-predict", action="store_true", help="Load saved model + predict sample"
+    )
+>>>>>>> Stashed changes
     args = parser.parse_args()
 
     if args.all:
