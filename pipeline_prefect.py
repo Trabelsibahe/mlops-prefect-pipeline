@@ -37,14 +37,10 @@ SAMPLE_CUSTOMER = [850, 0, 43, 2, 125510.82, 1, 1, 1, 79084.10]
 REPO_URL = "https://github.com/Trabelsibahe/mlops-prefect-pipeline.git"
 PROJECT_DIR = os.path.abspath(".")
 
-<<<<<<< Updated upstream
-# ── MLflow ─────────────────────────────────────────────────
-=======
 # ── MLflow ────────────────────────────────────────────────
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
 MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "Customer-Churn")
 
->>>>>>> Stashed changes
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
 
@@ -142,14 +138,6 @@ def task_start_api():
 @task(name="start_mlflow_ui", log_prints=True)
 def task_start_mlflow_ui():
     print("[mlflow] Starting MLflow UI on http://127.0.0.1:5000 …")
-<<<<<<< Updated upstream
-    subprocess.Popen([
-        sys.executable, "-m", "mlflow", "ui",
-        "--backend-store-uri", MLFLOW_TRACKING_URI,
-        "--host", "0.0.0.0",
-        "--port", "5000",
-    ])
-=======
     subprocess.Popen(
         [
             sys.executable,
@@ -164,7 +152,6 @@ def task_start_mlflow_ui():
             "5000",
         ]
     )
->>>>>>> Stashed changes
     print("[mlflow] UI started in background.")
 
 
