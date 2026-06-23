@@ -110,17 +110,29 @@ def train_model(x_train, y_train, n_estimators: int = 100, random_state: int = 4
     print(f"[train_model] Model trained with {n_estimators} estimators.")
 
     if mlflow.active_run():
+        train_pred = model.predict(x_train)
+        train_acc = accuracy_score(y_train, train_pred)
+        train_precision = precision_score(y_train, train_pred, zero_division=0)
+        train_recall = recall_score(y_train, train_pred, zero_division=0)
+        train_f1 = f1_score(y_train, train_pred, zero_division=0)
+
         mlflow.log_params({
             "n_estimators":        n_estimators,
             "random_state_model":  random_state,
             "model_type":          "RandomForestClassifier",
+        })
+        mlflow.log_metrics({
+            "train_accuracy":  train_acc,
+            "train_precision":  train_precision,
+            "train_recall":     train_recall,
+            "train_f1":         train_f1,
         })
         mlflow.sklearn.log_model(
             sk_model=model,
             artifact_path="random_forest_model",
             registered_model_name="CustomerChurnModel",
         )
-        print("[mlflow] Params + model artefact logged.")
+        print("[mlflow] Params + training metrics + model artefact logged.")
 
     return model
 
