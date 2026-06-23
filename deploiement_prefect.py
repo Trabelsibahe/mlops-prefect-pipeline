@@ -37,7 +37,6 @@ def main():
     deploy_all = flow_all.to_deployment(
         name="ml-pipeline-all",
         cron="0 2 * * *",
-        timezone="UTC",
         tags=["mlops", "full-pipeline", "mlflow"],
     )
     deploy_train = flow_train.to_deployment(
