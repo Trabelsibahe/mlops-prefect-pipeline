@@ -1,7 +1,11 @@
 """
 deploiement_prefect.py
 ----------------------
-Registers Prefect deployments with schedules and starts a worker.
+Registers Prefect deployments and starts a worker.
+
+Local Prefect Server uses SQLite by default, so this project keeps only the
+main end-to-end pipeline scheduled to avoid lock contention from multiple
+overlapping cron deployments.
 
 Setup:
   Terminal 1 : prefect server start
@@ -33,21 +37,19 @@ def main():
     deploy_all = flow_all.to_deployment(
         name="ml-pipeline-all",
         cron="0 2 * * *",
+        timezone="UTC",
         tags=["mlops", "full-pipeline", "mlflow"],
     )
     deploy_train = flow_train.to_deployment(
         name="ml-pipeline-train",
-        cron="0 3 * * *",
         tags=["mlops", "training", "mlflow"],
     )
     deploy_evaluate = flow_evaluate.to_deployment(
         name="ml-pipeline-evaluate",
-        cron="0 4 * * *",
         tags=["mlops", "evaluation", "mlflow"],
     )
     deploy_code = flow_code.to_deployment(
         name="ml-pipeline-code",
-        cron="0 1 * * *",
         tags=["mlops", "code-quality"],
     )
     deploy_install = flow_install.to_deployment(
