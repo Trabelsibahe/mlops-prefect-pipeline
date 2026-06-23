@@ -30,6 +30,7 @@ from pipeline_prefect import (
     flow_code,
     flow_install,
     flow_mlflow_ui,
+    flow_cd,
 )
 
 
@@ -59,6 +60,10 @@ def main():
         name="ml-pipeline-mlflow-ui",
         tags=["mlops", "mlflow", "ui"],
     )
+    deploy_cd = flow_cd.to_deployment(
+        name="ml-pipeline-cd",
+        tags=["mlops", "docker", "cd"],
+    )
 
     print("Starting Prefect worker — serving all deployments …")
     print("Prefect UI  → http://localhost:4200")
@@ -71,6 +76,7 @@ def main():
         deploy_code,
         deploy_install,
         deploy_mlflow_ui,
+        deploy_cd,
     )
 
 

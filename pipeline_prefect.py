@@ -36,6 +36,10 @@ SAMPLE_CUSTOMER = [850, 0, 43, 2, 125510.82, 1, 1, 1, 79084.10]
 # ── Git repo ───────────────────────────────────────────────
 REPO_URL = "https://github.com/Trabelsibahe/mlops-prefect-pipeline.git"
 PROJECT_DIR = os.path.abspath(".")
+DOCKER_IMAGE_NAME = os.getenv("DOCKER_IMAGE_NAME", "prenom_nom_classe_mlops")
+DOCKER_IMAGE_TAG = os.getenv("DOCKER_IMAGE_TAG", "latest")
+DOCKER_CONTAINER_NAME = os.getenv("DOCKER_CONTAINER_NAME", "fastapi-mlflow-app")
+DOCKER_LOCAL_PORT = os.getenv("DOCKER_LOCAL_PORT", "8000")
 
 # ── MLflow ────────────────────────────────────────────────
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
@@ -153,6 +157,118 @@ def task_start_mlflow_ui():
         ]
     )
     print("[mlflow] UI started in background.")
+
+
+# ══════════════════════════════════════════════════════════
+# ░░  TASKS — DOCKER/CD
+# ══════════════════════════════════════════════════════════
+
+@task(name="docker_build_image", log_prints=True)
+def task_docker_build_image():
+    local_image = f"{DOCKER_IMAGE_NAME}:{DOCKER_IMAGE_TAG}"
+    print(f"[docker] Building image '{local_image}' …")
+    result = subprocess.run(
+        ["docker", "build", "-t", local_image, "."],
+        capture_output=True,
+        text=True,
+    )
+    print(result.stdout)
+    if result.returncode != 0:
+        raise RuntimeError(f"docker build failed:\n{result.stderr}")
+    print("[docker] Build complete.")
+    return local_image
+
+
+@task(name="docker_run_container", log_prints=True)
+def task_docker_run_container(local_image: str):
+    print(f"[docker] Running container '{DOCKER_CONTAINER_NAME}' from '{local_image}' …")
+
+    subprocess.run(
+        ["docker", "rm", "-f", DOCKER_CONTAINER_NAME],
+        capture_output=True,
+        text=True,
+    )
+
+    command = [
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        DOCKER_CONTAINER_NAME,
+        "-p",
+        f"{DOCKER_LOCAL_PORT}:8000",
+    ]
+
+    env_passthrough = {
+        "MLFLOW_TRACKING_URI": os.getenv("MLFLOW_TRACKING_URI"),
+        "MLFLOW_MODEL_URI": os.getenv("MLFLOW_MODEL_URI"),
+        "MLFLOW_RUN_ID": os.getenv("MLFLOW_RUN_ID"),
+        "MLFLOW_ARTIFACT_PATH": os.getenv("MLFLOW_ARTIFACT_PATH"),
+        "MODEL_PATH": os.getenv("MODEL_PATH"),
+    }
+    for key, value in env_passthrough.items():
+        if value:
+            command.extend(["-e", f"{key}={value}"])
+
+    command.append(local_image)
+
+    result = subprocess.run(command, capture_output=True, text=True)
+    print(result.stdout)
+    if result.returncode != 0:
+        raise RuntimeError(f"docker run failed:\n{result.stderr}")
+    print(f"[docker] Container is running on http://127.0.0.1:{DOCKER_LOCAL_PORT}")
+
+
+@task(name="docker_login", log_prints=True)
+def task_docker_login():
+    docker_username = os.getenv("DOCKERHUB_USERNAME")
+    docker_token = os.getenv("DOCKERHUB_TOKEN")
+
+    if not docker_username or not docker_token:
+        raise RuntimeError(
+            "Missing DOCKERHUB_USERNAME or DOCKERHUB_TOKEN environment variables."
+        )
+
+    print(f"[docker] Logging in to Docker Hub as '{docker_username}' …")
+    result = subprocess.run(
+        ["docker", "login", "-u", docker_username, "--password-stdin"],
+        input=docker_token,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"docker login failed:\n{result.stderr}")
+    print("[docker] Login successful.")
+    return docker_username
+
+
+@task(name="docker_tag_image", log_prints=True)
+def task_docker_tag_image(local_image: str, docker_username: str):
+    remote_image = f"{docker_username}/{DOCKER_IMAGE_NAME}:{DOCKER_IMAGE_TAG}"
+    print(f"[docker] Tagging '{local_image}' as '{remote_image}' …")
+    result = subprocess.run(
+        ["docker", "tag", local_image, remote_image],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"docker tag failed:\n{result.stderr}")
+    print("[docker] Tag complete.")
+    return remote_image
+
+
+@task(name="docker_push_image", log_prints=True)
+def task_docker_push_image(remote_image: str):
+    print(f"[docker] Pushing '{remote_image}' to Docker Hub …")
+    result = subprocess.run(
+        ["docker", "push", remote_image],
+        capture_output=True,
+        text=True,
+    )
+    print(result.stdout)
+    if result.returncode != 0:
+        raise RuntimeError(f"docker push failed:\n{result.stderr}")
+    print("[docker] Push complete.")
 
 
 # ══════════════════════════════════════════════════════════
@@ -333,6 +449,30 @@ def flow_mlflow_ui():
     task_start_mlflow_ui()
 
 
+@flow(name="cd", log_prints=True)
+def flow_cd():
+    """
+    CD flow for Docker:
+      build image -> run container -> login -> tag -> push
+    """
+    with mlflow.start_run(run_name="flow_cd"):
+        mlflow.set_tag("prefect_flow", "cd")
+        local_image = task_docker_build_image()
+        task_docker_run_container(local_image)
+        docker_username = task_docker_login()
+        remote_image = task_docker_tag_image(local_image, docker_username)
+        task_docker_push_image(remote_image)
+        mlflow.log_params(
+            {
+                "docker_image_name": DOCKER_IMAGE_NAME,
+                "docker_image_tag": DOCKER_IMAGE_TAG,
+                "docker_container_name": DOCKER_CONTAINER_NAME,
+                "docker_local_port": DOCKER_LOCAL_PORT,
+            }
+        )
+        mlflow.log_param("docker_remote_image", remote_image)
+
+
 # ══════════════════════════════════════════════════════════
 # ░░  CLI ENTRY POINT
 # ══════════════════════════════════════════════════════════
@@ -345,6 +485,7 @@ FLOWS = {
     "install": flow_install,
     "api": flow_api,
     "mlflow_ui": flow_mlflow_ui,
+    "cd": flow_cd,
 }
 
 if __name__ == "__main__":
@@ -353,7 +494,7 @@ if __name__ == "__main__":
         "--flow",
         choices=list(FLOWS.keys()),
         required=True,
-        help="Which flow to run: all | train | evaluate | code | install | api | mlflow_ui",
+        help="Which flow to run: all | train | evaluate | code | install | api | mlflow_ui | cd",
     )
     args = parser.parse_args()
     FLOWS[args.flow]()

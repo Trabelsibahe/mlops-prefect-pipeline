@@ -17,7 +17,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 import os
+import tempfile
+from pathlib import Path
 from fastapi.middleware.cors import CORSMiddleware
+import mlflow
 
 from model_pipeline import load_model, predict
 
@@ -25,15 +28,60 @@ from model_pipeline import load_model, predict
 MODEL_PATH = "classifier.joblib"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INDEX_HTML_PATH = os.path.join(BASE_DIR, "index.html")
+MODEL_SOURCE = "local"
 
-# ── Load model at startup ──────────────────────────────────
-if not os.path.exists(MODEL_PATH):
+
+def resolve_model_path() -> str:
+    """
+    Resolve model path with this priority:
+    1) local file (MODEL_PATH)
+    2) MLflow URI (MLFLOW_MODEL_URI)
+    3) MLflow run artifact (MLFLOW_RUN_ID + MLFLOW_ARTIFACT_PATH)
+    """
+    local_model_path = os.getenv("MODEL_PATH", MODEL_PATH)
+    if os.path.exists(local_model_path):
+        return local_model_path
+
+    download_dir = os.getenv(
+        "MLFLOW_DOWNLOAD_DIR",
+        os.path.join(tempfile.gettempdir(), "mlflow_downloaded_model"),
+    )
+    Path(download_dir).mkdir(parents=True, exist_ok=True)
+
+    mlflow_model_uri = os.getenv("MLFLOW_MODEL_URI")
+    if mlflow_model_uri:
+        downloaded_path = mlflow.artifacts.download_artifacts(
+            artifact_uri=mlflow_model_uri,
+            dst_path=download_dir,
+        )
+        if os.path.isdir(downloaded_path):
+            candidate = os.path.join(downloaded_path, "classifier.joblib")
+            if os.path.exists(candidate):
+                return candidate
+        if os.path.exists(downloaded_path):
+            return downloaded_path
+
+    mlflow_run_id = os.getenv("MLFLOW_RUN_ID")
+    mlflow_artifact_path = os.getenv("MLFLOW_ARTIFACT_PATH", "saved_model/classifier.joblib")
+    if mlflow_run_id:
+        downloaded_path = mlflow.artifacts.download_artifacts(
+            run_id=mlflow_run_id,
+            artifact_path=mlflow_artifact_path,
+            dst_path=download_dir,
+        )
+        if os.path.exists(downloaded_path):
+            return downloaded_path
+
     raise RuntimeError(
-        f"Model file '{MODEL_PATH}' not found. "
-        "Please train and save the model first: python main.py --save"
+        "No model found. Set MODEL_PATH, or provide MLflow artifact settings: "
+        "MLFLOW_MODEL_URI or (MLFLOW_RUN_ID + MLFLOW_ARTIFACT_PATH)."
     )
 
-model = load_model(MODEL_PATH)
+# ── Load model at startup ──────────────────────────────────
+resolved_model_path = resolve_model_path()
+if os.path.abspath(resolved_model_path) != os.path.abspath(os.getenv("MODEL_PATH", MODEL_PATH)):
+    MODEL_SOURCE = "mlflow_artifact"
+model = load_model(resolved_model_path)
 
 # ── FastAPI app ────────────────────────────────────────────
 app = FastAPI(
@@ -86,7 +134,12 @@ def root():
 @app.get("/health", tags=["Health"])
 def health():
     """Health check — confirms the API is running."""
-    return {"status": "ok", "message": "Churn Prediction API is running."}
+    return {
+        "status": "ok",
+        "message": "Churn Prediction API is running.",
+        "model_source": MODEL_SOURCE,
+        "tracking_uri": os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db"),
+    }
 
 
 @app.post("/predict", response_model=PredictionResponse, tags=["Prediction"])
